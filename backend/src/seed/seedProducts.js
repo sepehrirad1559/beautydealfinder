@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { pool } from '../db.js';
 import { upsertProductOffer } from '../services/productStore.js';
 
@@ -91,7 +92,7 @@ async function seed() {
   let productsCreated = 0;
   for (const product of SAMPLE_PRODUCTS) {
     for (const offer of product.offers) {
-      const retailerProductId = `seed-${offer.retailer}-${Buffer.from(offer.url).toString('base64url').slice(0, 16)}`;
+      const retailerProductId = `seed-${offer.retailer}-${crypto.createHash('sha1').update(offer.url).digest('hex').slice(0, 16)}`;
       const result = await upsertProductOffer({
         retailer: offer.retailer,
         retailerProductId,
