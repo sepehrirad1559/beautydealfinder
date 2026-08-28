@@ -217,6 +217,8 @@ export default function App() {
         <div className="site-footer-inner">
           <AffiliateDisclosure className="footer" />
           <nav className="footer-links">
+            <a href="/about.html">About Us</a>
+            <a href="/contact.html">Contact Us</a>
             <a href="/privacy.html">Privacy Policy</a>
             <a href="/terms.html">Terms of Service</a>
             <a href="/cookies.html">Cookie Notice</a>
