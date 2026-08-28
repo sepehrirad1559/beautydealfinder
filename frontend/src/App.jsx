@@ -26,7 +26,7 @@ const COMING_SOON_RETAILERS = Object.keys(RETAILER_LABELS).filter((r) => !LIVE_R
 function AffiliateDisclosure({ className }) {
   return (
     <p className={`disclosure${className ? ` ${className}` : ''}`}>
-      Disclosure: Beauty Deal Finder is an independent price-comparison site. We don't sell products
+      Disclosure: BeautyPriceMatch is an independent price-comparison site. We don't sell products
       ourselves — "Buy at" links above take you to the retailer's own site to complete your purchase,
       and we may earn a commission on qualifying purchases at no extra cost to you.
     </p>
@@ -157,7 +157,7 @@ export default function App() {
       <div className="hero">
         <div className="hero-inner">
           <div className="hero-top">
-            <div className="wordmark">Beauty Deal Finder<span className="dot">.</span></div>
+            <div className="wordmark">BeautyPriceMatch<span className="dot">.</span></div>
           </div>
           <div className="hero-kicker">Real prices, one retailer live today</div>
           <h1 className="display">Find the real price before you buy.</h1>
