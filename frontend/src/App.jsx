@@ -149,6 +149,11 @@ export default function App() {
 
   return (
     <>
+      <div className="demo-banner" role="note">
+        <span>
+          <strong>Demo mode:</strong> the prices shown below are sample data for preview purposes, not live retailer prices — real pricing is being connected now.
+        </span>
+      </div>
       <div className="hero">
         <div className="hero-inner">
           <div className="hero-top">
