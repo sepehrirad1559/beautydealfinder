@@ -147,15 +147,29 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  const [showAllBrands, setShowAllBrands] = useState(false);
+  const FAMOUS_BRANDS = ['CeraVe', 'Maybelline', "L'Oreal Paris", 'Neutrogena', 'e.l.f.', 'NYX Professional Makeup', 'Revlon', 'The Ordinary', 'Olay', 'Dove', 'Nivea', "Burt's Bees"];
+  const sortedBrands = [...brands].sort((a, b) => {
+    const ai = FAMOUS_BRANDS.findIndex((f) => f.toLowerCase() === a.toLowerCase());
+    const bi = FAMOUS_BRANDS.findIndex((f) => f.toLowerCase() === b.toLowerCase());
+    const aRank = ai === -1 ? FAMOUS_BRANDS.length : ai;
+    const bRank = bi === -1 ? FAMOUS_BRANDS.length : bi;
+    if (aRank !== bRank) return aRank - bRank;
+    return a.localeCompare(b);
+  });
+  const VISIBLE_BRAND_COUNT = 10;
+  const visibleBrands = showAllBrands ? sortedBrands : sortedBrands.slice(0, VISIBLE_BRAND_COUNT);
+  const hiddenBrandCount = sortedBrands.length - VISIBLE_BRAND_COUNT;
+
   return (
     <>
       <div className="hero">
         <div className="hero-inner">
           <div className="hero-top">
-            <div className="wordmark">BeautyPriceMatch<span className="dot">.</span></div>
+            <div className="wordmark">BeautyPriceMatch<span className="dot">.com</span></div>
           </div>
           <div className="hero-kicker">Real prices, one retailer live today</div>
-          <h1 className="display">Find the real price before you buy.</h1>
+          <h1 className="display">Find the best price before you buy.</h1>
           <p className="hero-sub">
             We're launching with real, live pricing from Amazon — {COMING_SOON_RETAILERS.map((r) => RETAILER_LABELS[r]).join(', ')}{' '}
             are coming soon as we get set up with each retailer's affiliate program.
@@ -175,9 +189,14 @@ export default function App() {
           </label>
           <div className="chips">
             <button className={`chip${brand === '' ? ' active' : ''}`} onClick={() => setBrand('')}>All brands</button>
-            {brands.map((b) => (
+            {visibleBrands.map((b) => (
               <button key={b} className={`chip${brand === b ? ' active' : ''}`} onClick={() => setBrand(b)}>{b}</button>
             ))}
+            {hiddenBrandCount > 0 && (
+              <button className="chip chip-more" onClick={() => setShowAllBrands((v) => !v)}>
+                {showAllBrands ? 'Show less' : `+${hiddenBrandCount} more`}
+              </button>
+            )}
           </div>
         </div>
       </div>
