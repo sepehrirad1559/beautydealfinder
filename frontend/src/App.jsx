@@ -117,7 +117,10 @@ function ProductDetailDrawer({ product, onClose }) {
 export default function App() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return new URLSearchParams(window.location.search).get('search') || '';
+  });
   const [brand, setBrand] = useState('');
   const [brands, setBrands] = useState([]);
   const [selected, setSelected] = useState(null);
@@ -231,6 +234,7 @@ export default function App() {
         <div className="site-footer-inner">
           <AffiliateDisclosure className="footer" />
           <nav className="footer-links">
+            <a href="/blog/">Blog</a>
             <a href="/about.html">About Us</a>
             <a href="/contact.html">Contact Us</a>
             <a href="/privacy.html">Privacy Policy</a>
