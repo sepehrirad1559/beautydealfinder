@@ -1,0 +1,37 @@
+.wrap.blog { max-width: 760px; }
+.post-list { list-style: none; margin: 0; padding: 0; }
+.post-list li {
+  border-bottom: 1px solid var(--line);
+  padding: 20px 0;
+}
+.post-list li:first-child { padding-top: 0; }
+.post-list a.title-link {
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-size: 19px;
+  text-decoration: none;
+  color: var(--ink);
+}
+.post-list a.title-link:hover { color: var(--accent); }
+.post-meta { color: var(--muted); font-size: 13px; margin: 4px 0 6px; }
+.post-excerpt { font-size: 14.5px; color: var(--muted); margin: 0; }
+.tag {
+  display: inline-block; font-size: 11px; letter-spacing: .03em; text-transform: uppercase;
+  background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent);
+  border-radius: 999px; padding: 2px 9px; margin-right: 8px;
+}
+.tag.soon { background: var(--line); color: var(--muted); }
+.soon-row { display: flex; align-items: baseline; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.soon-row .soon-title { font-size: 14.5px; color: var(--muted); }
+.cta-box {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 18px 20px; margin: 28px 0; font-size: 14.5px;
+}
+.cta-box a.btn {
+  display: inline-block; margin-top: 10px; background: var(--accent); color: #fff;
+  text-decoration: none; padding: 9px 16px; border-radius: 8px; font-size: 13.5px; font-weight: 600;
+}
+article.post h2 { margin-top: 32px; }
+article.post p, article.post li { font-size: 15px; }
+article.post table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+article.post th, article.post td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; }
+article.post th { background: var(--surface); }
