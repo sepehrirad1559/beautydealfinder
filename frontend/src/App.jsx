@@ -128,7 +128,7 @@ export default function App() {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
       if (brand) params.set('brand', brand);
-      params.set('limit', '48');
+      params.set('limit', '500');
       const res = await fetch(`${API_URL}/products?${params.toString()}`);
       const data = await res.json();
       setProducts(data.products || []);
