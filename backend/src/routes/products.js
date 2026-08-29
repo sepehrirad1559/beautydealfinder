@@ -135,7 +135,7 @@ router.get('/', async (req, res) => {
         : (a, b) => (a.best_price ?? Infinity) - (b.best_price ?? Infinity);
     shaped.sort(sortFn);
 
-    const pageLimit = Math.min(Number(limit) || 24, 100);
+    const pageLimit = Math.min(Number(limit) || 24, 500);
     const pageOffset = Number(offset) || 0;
     const paged = shaped.slice(pageOffset, pageOffset + pageLimit);
 
