@@ -15,6 +15,14 @@ const RETAILER_LABELS = {
   beautylish: 'Beautylish',
   glossier: 'Glossier',
   cultbeauty: 'Cult Beauty',
+  // Awin affiliate feeds are stored as `awin_<advertiserId>` (see
+  // backend/src/services/awinSync.js) — the raw code isn't something a
+  // shopper should ever see, so every joined Awin advertiser needs a
+  // human label here. `zlikehair` is a legacy retailer code from an
+  // earlier one-off import script and maps to the same merchant.
+  awin_102013: 'ZlikeHair',
+  zlikehair: 'ZlikeHair',
+  awin_108282: 'Sol Labs',
 };
 
 // Which retailers actually have a working data source right now (see
@@ -25,7 +33,7 @@ const RETAILER_LABELS = {
 // silently drift out of sync with reality and imply a retailer is live
 // when it isn't — a comparison site's core promise is that its prices are
 // real, so this can't fudge it even for launch-day polish.
-const LIVE_RETAILERS = ['amazon'];
+const LIVE_RETAILERS = ['amazon', 'awin_102013', 'zlikehair', 'awin_108282'];
 const COMING_SOON_RETAILERS = Object.keys(RETAILER_LABELS).filter((r) => !LIVE_RETAILERS.includes(r));
 
 function AffiliateDisclosure({ className }) {
