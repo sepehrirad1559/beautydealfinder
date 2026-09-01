@@ -163,7 +163,7 @@ const sortFn = sort === 'price_desc'
 : (a, b) => (a.best_price ?? Infinity) - (b.best_price ?? Infinity);
 shaped.sort(sortFn);
 
-const pageLimit = Math.min(Number(limit) || 24, 500);
+const pageLimit = Math.min(Number(limit) || 24, MAX_PRODUCT_ROWS);
 const pageOffset = Number(offset) || 0;
 const paged = shaped.slice(pageOffset, pageOffset + pageLimit);
 
