@@ -100,6 +100,24 @@ params.push(category);
 paramCount++;
 }
 
+// Restrict to products with a live offer BEFORE the row cap below, not
+// after — a sync run can touch thousands of out-of-stock rows in a row
+// (they're processed in whatever order the source feed lists them), and
+// filtering for availability only after limiting to the 5000 most
+// recently-updated products meant a big out-of-stock batch could push
+// every in-stock product out of that window, showing 0 results mid-sync
+// even though plenty of products actually have a live price. Doing the
+// filter in SQL, before LIMIT, avoids that.
+if (!includeUnavailable) {
+whereClause += ` AND EXISTS (
+  SELECT 1 FROM offers o
+  WHERE o.product_id = p.id
+    AND o.availability = 'in_stock'
+    AND o.price IS NOT NULL
+    AND o.last_updated > NOW() - INTERVAL '${STALE_OFFER_HOURS} hours'
+)`;
+}
+
 const { rows: products } = await pool.query(
 `SELECT p.* FROM products p ${whereClause} ORDER BY p.updated_at DESC LIMIT ${MAX_PRODUCT_ROWS}`,
 params
