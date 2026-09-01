@@ -2,6 +2,11 @@ import React, { useState, useEffect, useCallback } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:30011/api';
 const GO_BASE = API_URL.replace(/\/api\/?$/, '');
+// Keep in sync with the backend's own page-size cap (MAX_PAGE_SIZE in
+// backend/src/routes/products.js) — this is a single-page catalog view
+// today (no "load more"), so we ask for as many as the backend will hand
+// back in one response.
+const MAX_PAGE_SIZE = 5000;
 
 const RETAILER_LABELS = {
   amazon: 'Amazon',
@@ -116,6 +121,7 @@ function ProductDetailDrawer({ product, onClose }) {
 
 export default function App() {
   const [products, setProducts] = useState([]);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState(() => {
     if (typeof window === 'undefined') return '';
@@ -131,10 +137,16 @@ export default function App() {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
       if (brand) params.set('brand', brand);
-      params.set('limit', '500');
+      // The catalog can hold thousands of live products, but the backend
+      // caps a single page at MAX_PAGE_SIZE (see routes/products.js) so one
+      // request can't blow up response size — request that full page and
+      // show the server's real `total` (not products.length) so the count
+      // on screen never silently reads as "500" when there's actually more.
+      params.set('limit', String(MAX_PAGE_SIZE));
       const res = await fetch(`${API_URL}/products?${params.toString()}`);
       const data = await res.json();
       setProducts(data.products || []);
+      setTotal(typeof data.total === 'number' ? data.total : (data.products || []).length);
     } catch (err) {
       console.error('Failed to fetch products:', err);
     } finally {
@@ -205,7 +217,7 @@ export default function App() {
       </div>
 
       <main className="page">
-        <p className="subhead"><strong>{products.length}</strong> product{products.length === 1 ? '' : 's'}</p>
+        <p className="subhead"><strong>{total}</strong> product{total === 1 ? '' : 's'}</p>
 
         {loading ? (
           <p className="empty-state">Loading…</p>
