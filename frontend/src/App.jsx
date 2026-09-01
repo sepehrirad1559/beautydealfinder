@@ -36,6 +36,21 @@ const RETAILER_LABELS = {
 const LIVE_RETAILERS = ['amazon', 'awin_102013', 'zlikehair', 'awin_108282'];
 const COMING_SOON_RETAILERS = Object.keys(RETAILER_LABELS).filter((r) => !LIVE_RETAILERS.includes(r));
 
+// Two+ retailer codes can share one merchant (e.g. `awin_102013` and the
+// legacy `zlikehair` code both mean ZlikeHair — see RETAILER_LABELS above),
+// so a pill per code would print "ZlikeHair · Live" twice. Group codes by
+// their displayed label first, and keep every code in the group so a click
+// filters by all of them at once (the backend's `retailer` param accepts a
+// comma-separated list).
+const LIVE_RETAILER_GROUPS = Object.values(
+  LIVE_RETAILERS.reduce((groups, code) => {
+    const label = RETAILER_LABELS[code] || code;
+    if (!groups[label]) groups[label] = { label, codes: [] };
+    groups[label].codes.push(code);
+    return groups;
+  }, {})
+);
+
 function AffiliateDisclosure({ className }) {
   return (
     <p className={`disclosure${className ? ` ${className}` : ''}`}>
@@ -138,6 +153,11 @@ export default function App() {
   const [brand, setBrand] = useState('');
   const [brands, setBrands] = useState([]);
   const [selected, setSelected] = useState(null);
+  // The retailer label the "Live" pills are currently filtering to (e.g.
+  // "ZlikeHair"), or '' for no filter. Stored by label (not raw codes) so
+  // it's easy to compare against for the pill's active state; the actual
+  // codes for the request are looked up from LIVE_RETAILER_GROUPS.
+  const [retailerLabel, setRetailerLabel] = useState('');
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
@@ -145,6 +165,10 @@ export default function App() {
       const params = new URLSearchParams();
       if (search) params.set('search', search);
       if (brand) params.set('brand', brand);
+      if (retailerLabel) {
+        const group = LIVE_RETAILER_GROUPS.find((g) => g.label === retailerLabel);
+        if (group) params.set('retailer', group.codes.join(','));
+      }
       // The catalog can hold thousands of live products, but the backend
       // caps a single page at MAX_PAGE_SIZE (see routes/products.js) so one
       // request can't blow up response size — request that full page and
@@ -160,7 +184,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [search, brand]);
+  }, [search, brand, retailerLabel]);
 
   useEffect(() => { fetchProducts(); }, [fetchProducts]);
   useEffect(() => {
@@ -198,9 +222,26 @@ export default function App() {
             are coming soon as we get set up with each retailer's affiliate program.
           </p>
           <div className="hero-status">
-            {LIVE_RETAILERS.map((r) => <span key={r} className="status-pill live">{RETAILER_LABELS[r]} · Live</span>)}
-            {COMING_SOON_RETAILERS.map((r) => <span key={r} className="status-pill soon">{RETAILER_LABELS[r]} · Coming soon</span>)}
+            {LIVE_RETAILER_GROUPS.map((g) => (
+              <button
+                key={g.label}
+                type="button"
+                className={`status-pill live${retailerLabel === g.label ? ' active' : ''}`}
+                aria-pressed={retailerLabel === g.label}
+                onClick={() => setRetailerLabel((current) => (current === g.label ? '' : g.label))}
+              >
+                {g.label} · Live
+              </button>
+            ))}
+            {COMING_SOON_RETAILERS.map((r) => (
+              <span key={r} className="status-pill soon" aria-disabled="true">{RETAILER_LABELS[r]} · Coming soon</span>
+            ))}
           </div>
+          {retailerLabel && (
+            <button type="button" className="retailer-clear" onClick={() => setRetailerLabel('')}>
+              Showing {retailerLabel} only · clear filter
+            </button>
+          )}
         </div>
       </div>
 
