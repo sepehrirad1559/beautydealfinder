@@ -78,11 +78,26 @@ price_difference: lowest && o.price != null ? Math.round((Number(o.price) - Numb
 // contacted directly by the client.
 router.get('/', async (req, res) => {
 try {
-const { search, brand, category, minPrice, maxPrice, sort, limit, offset, includeUnavailable } = req.query;
+const { search, brand, category, minPrice, maxPrice, sort, limit, offset, includeUnavailable, retailer } = req.query;
 
 let whereClause = 'WHERE 1=1';
 const params = [];
 let paramCount = 1;
+
+// `retailer` may be a single code or a comma-separated list — a merchant
+// can have more than one retailer code on file (e.g. a legacy one-off
+// import script used a different code than the current Awin sync), and
+// the frontend's "Best at X" filter pills need to match every code that
+// resolves to the same displayed retailer name.
+if (retailer) {
+whereClause += ` AND EXISTS (
+  SELECT 1 FROM offers o
+  WHERE o.product_id = p.id
+    AND o.retailer = ANY($${paramCount}::text[])
+)`;
+params.push(String(retailer).split(',').map((r) => r.trim()).filter(Boolean));
+paramCount++;
+}
 
 if (search) {
 whereClause += ` AND (p.product_name ILIKE $${paramCount} OR p.brand ILIKE $${paramCount})`;
