@@ -60,9 +60,13 @@ button { font-family: inherit; }
 .hero h1 { margin: 0; font-weight: 700; letter-spacing: -0.015em; font-size: clamp(28px, 4.4vw, 46px); line-height: 1.06; text-wrap: balance; max-width: 18ch; }
 .hero-sub { margin: 16px 0 0; max-width: 48ch; color: var(--hero-muted); font-size: 15px; line-height: 1.6; }
 .hero-status { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 26px; }
-.status-pill { font-size: 12px; font-weight: 600; padding: 7px 13px; border-radius: 999px; border: 1px solid var(--hero-line); }
-.status-pill.live { color: var(--hero-bg); background: var(--hero-gold); border-color: var(--hero-gold); }
-.status-pill.soon { color: var(--hero-muted); }
+.status-pill { font: inherit; font-size: 12px; font-weight: 600; padding: 7px 13px; border-radius: 999px; border: 1px solid var(--hero-line); margin: 0; }
+.status-pill.live { color: var(--hero-bg); background: var(--hero-gold); border-color: var(--hero-gold); cursor: pointer; transition: transform 0.1s ease, box-shadow 0.15s ease; }
+.status-pill.live:hover { box-shadow: 0 0 0 3px color-mix(in srgb, var(--hero-gold) 35%, transparent); }
+.status-pill.live:active { transform: scale(0.97); }
+.status-pill.live.active { color: var(--hero-gold); background: transparent; box-shadow: 0 0 0 2px var(--hero-gold) inset; }
+.status-pill.soon { color: var(--hero-muted); background: transparent; cursor: default; }
+.retailer-clear { display: block; margin: 10px 0 0; padding: 0; font: inherit; font-size: 12px; font-weight: 600; color: var(--hero-gold); background: none; border: none; text-decoration: underline; cursor: pointer; }
 
 .toolbar { position: sticky; top: 0; z-index: 20; background: color-mix(in srgb, var(--bg) 90%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
 .toolbar-inner { max-width: 1120px; margin: 0 auto; padding: 16px 24px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
