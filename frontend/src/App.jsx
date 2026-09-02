@@ -106,6 +106,53 @@ function ProductCard({ product, onSelect }) {
   );
 }
 
+// Curated homepage rows, in the order they should appear. Each maps to
+// the backend's `categoryGroup` param (see routes/products.js) — kept
+// data-driven here so adding a fifth row later is a one-line change, not
+// a new component.
+const CATEGORY_SECTIONS = [
+  { key: 'deals', title: 'Limited Time Deals', blurb: 'Real, source-reported discounts across every retailer — refreshed as syncs run.' },
+  { key: 'makeup', title: 'Makeup', blurb: 'Foundation, mascara, lipstick, eyeshadow and more.' },
+  { key: 'skincare', title: 'Skincare', blurb: 'Moisturizers, serums, sunscreen, face wash.' },
+  { key: 'hair', title: 'Hair & Wigs', blurb: 'Wigs, extensions, shampoo and haircare.' },
+];
+const SECTION_PAGE_SIZE = 8;
+
+function CategorySection({ section, onSelect }) {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const params = new URLSearchParams({ categoryGroup: section.key, limit: String(SECTION_PAGE_SIZE) });
+    fetch(`${API_URL}/products?${params.toString()}`)
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setProducts(d.products || []); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [section.key]);
+
+  if (!loading && products.length === 0) return null;
+
+  return (
+    <section className="category-section">
+      <div className="category-section-head">
+        <h2>{section.title}</h2>
+        <p>{section.blurb}</p>
+      </div>
+      {loading ? (
+        <p className="empty-state small">Loading…</p>
+      ) : (
+        <div className="category-row">
+          {products.map((p) => <ProductCard key={p.id} product={p} onSelect={onSelect} />)}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ProductDetailDrawer({ product, onClose }) {
   const open = Boolean(product);
   const effectiveOf = (o) => (o.effective_price != null ? o.effective_price : o.price);
@@ -294,6 +341,14 @@ export default function App() {
       </div>
 
       <main className="page">
+        {!search && !brand && !retailerLabel && (
+          <div className="category-sections">
+            {CATEGORY_SECTIONS.map((section) => (
+              <CategorySection key={section.key} section={section} onSelect={setSelected} />
+            ))}
+          </div>
+        )}
+
         <p className="subhead"><strong>{total}</strong> product{total === 1 ? '' : 's'}</p>
 
         {loading ? (
