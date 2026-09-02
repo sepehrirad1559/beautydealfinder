@@ -77,7 +77,10 @@ function ProductCard({ product, onSelect }) {
     <div className="card" tabIndex={0} onClick={() => onSelect(product)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(product); } }}>
       {discountPct > 0 ? (
-        <div className="save-badge discount-badge">-{discountPct}% off</div>
+        <div className="deal-tag">
+          <span className="save-badge discount-badge">{discountPct}% off</span>
+          <span className="deal-label">Limited time deal</span>
+        </div>
       ) : savePct > 0 && (
         <div className="save-badge">Save {savePct}%</div>
       )}
