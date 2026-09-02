@@ -68,18 +68,31 @@ function ProductCard({ product, onSelect }) {
   const savePct = offers.length > 1 && worstPrice > 0 && product.best_price != null
     ? Math.round((1 - product.best_price / worstPrice) * 100)
     : 0;
+  // A genuine seller-reported discount on the cheapest offer (list price
+  // vs. the retailer's own sale price) — distinct from savePct above,
+  // which is only a cross-retailer price comparison.
+  const discountPct = product.discount_percent || 0;
 
   return (
     <div className="card" tabIndex={0} onClick={() => onSelect(product)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(product); } }}>
-      {savePct > 0 && <div className="save-badge">Save {savePct}%</div>}
+      {discountPct > 0 ? (
+        <div className="save-badge discount-badge">-{discountPct}% off</div>
+      ) : savePct > 0 && (
+        <div className="save-badge">Save {savePct}%</div>
+      )}
       <div className="thumb">
         {product.image_url ? <img src={product.image_url} alt={product.title} /> : <span>No image</span>}
       </div>
       <div className="brand">{product.brand || ' '}</div>
       <div className="title">{product.title}</div>
       <div className="card-meta">
-        <div className="price">{product.best_price != null ? `$${Number(product.best_price).toFixed(2)}` : 'Price unavailable'}</div>
+        <div className="price-block">
+          <div className="price">{product.best_price != null ? `$${Number(product.best_price).toFixed(2)}` : 'Price unavailable'}</div>
+          {discountPct > 0 && product.best_original_price != null && (
+            <div className="price-was">${Number(product.best_original_price).toFixed(2)}</div>
+          )}
+        </div>
         {offers.length > 1 && <div className="count">{offers.length} retailers</div>}
       </div>
       {bestOffer && (
@@ -91,13 +104,16 @@ function ProductCard({ product, onSelect }) {
 
 function ProductDetailDrawer({ product, onClose }) {
   const open = Boolean(product);
+  const effectiveOf = (o) => (o.effective_price != null ? o.effective_price : o.price);
   const offers = product ? [...(product.offers || [])].sort((a, b) => {
-    if (a.price != null && b.price != null) return a.price - b.price;
-    if (a.price != null) return -1;
-    if (b.price != null) return 1;
+    const ea = effectiveOf(a);
+    const eb = effectiveOf(b);
+    if (ea != null && eb != null) return ea - eb;
+    if (ea != null) return -1;
+    if (eb != null) return 1;
     return 0;
   }) : [];
-  const lowestPrice = offers.find((o) => o.price != null)?.price;
+  const lowestPrice = effectiveOf(offers.find((o) => effectiveOf(o) != null) || {});
 
   return (
     <>
@@ -113,7 +129,9 @@ function ProductDetailDrawer({ product, onClose }) {
             <div className="drawer-body">
               <div className="offer-list">
                 {offers.map((offer) => {
-                  const isBest = offer.price != null && offer.price === lowestPrice;
+                  const effective = effectiveOf(offer);
+                  const isBest = effective != null && effective === lowestPrice;
+                  const discountPct = offer.discount_percent || 0;
                   return (
                     <a
                       key={offer.id}
@@ -122,10 +140,16 @@ function ProductDetailDrawer({ product, onClose }) {
                       target="_blank"
                       rel="noopener noreferrer sponsored"
                     >
-                      <span className="offer-retailer">{RETAILER_LABELS[offer.retailer] || offer.retailer}</span>
+                      <span className="offer-retailer">
+                        {RETAILER_LABELS[offer.retailer] || offer.retailer}
+                        {discountPct > 0 && <span className="badge-discount">-{discountPct}%</span>}
+                      </span>
                       <span className="offer-price">
                         {isBest && <span className="badge-best">Best</span>}
-                        {offer.price != null ? `$${Number(offer.price).toFixed(2)}` : 'Check price'} ↗
+                        {discountPct > 0 && offer.original_price != null && (
+                          <span className="offer-price-was">${Number(offer.original_price).toFixed(2)}</span>
+                        )}
+                        {effective != null ? `$${Number(effective).toFixed(2)}` : 'Check price'} ↗
                       </span>
                     </a>
                   );
