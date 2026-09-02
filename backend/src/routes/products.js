@@ -17,6 +17,32 @@ const isStale = ageMs > STALE_OFFER_HOURS * 60 * 60 * 1000;
 return { ...offer, is_stale: isStale };
 }
 
+// An offer is "on sale" when its sale_price is a real, lower number than
+// its (list/original) price — sale_price is only ever populated by a
+// source that actually reports a discount (see services/productStore.js
+// and awinSync.js's rrp_price handling), so this is never inferred, only
+// read from what the retailer's own feed/API said.
+function isOnSale(offer) {
+return offer.sale_price != null
+&& Number(offer.sale_price) > 0
+&& offer.price != null
+&& Number(offer.sale_price) < Number(offer.price);
+}
+
+// The price that actually applies right now — the sale price when the
+// offer is genuinely on sale, otherwise the regular price. Every price
+// comparison (best_price, cross-retailer savings, sort order) uses this
+// so a discounted offer is correctly treated as cheaper than its own
+// undiscounted list price.
+function effectivePrice(offer) {
+return isOnSale(offer) ? Number(offer.sale_price) : Number(offer.price);
+}
+
+function discountPercent(offer) {
+if (!isOnSale(offer)) return 0;
+return Math.round((1 - Number(offer.sale_price) / Number(offer.price)) * 100);
+}
+
 // Shapes one product + its offers into the response the frontend expects:
 // `title`/`best_price`/`offers[]` (kept stable across the schema change so
 // the existing UI needs no changes), plus explicit price-comparison fields
@@ -28,13 +54,19 @@ return { ...offer, is_stale: isStale };
 function shapeProduct(product, offers) {
 const annotated = offers.map(withFreshness);
 const current = annotated.filter((o) => !o.is_stale && o.availability !== 'out_of_stock' && o.price != null);
-const sortedCurrent = [...current].sort((a, b) => Number(a.price) - Number(b.price));
+const sortedCurrent = [...current].sort((a, b) => effectivePrice(a) - effectivePrice(b));
 
 const lowest = sortedCurrent[0] || null;
 const highest = sortedCurrent[sortedCurrent.length - 1] || null;
-const savingsPct = lowest && highest && highest.price > 0 && lowest.id !== highest.id
-? Math.round((1 - Number(lowest.price) / Number(highest.price)) * 100)
+const lowestPrice = lowest ? effectivePrice(lowest) : null;
+const highestPrice = highest ? effectivePrice(highest) : null;
+const savingsPct = lowest && highest && highestPrice > 0 && lowest.id !== highest.id
+? Math.round((1 - lowestPrice / highestPrice) * 100)
 : 0;
+// The discount on the best (cheapest, currently-selected) offer itself —
+// a genuine "this listing is marked down" signal, distinct from
+// savings_percent above (which compares across different retailers).
+const bestDiscountPct = lowest ? discountPercent(lowest) : 0;
 
 return {
 id: product.id,
@@ -52,15 +84,23 @@ size: product.size,
 shade: product.shade,
 image_url: product.image_url,
 updated_at: product.updated_at,
-best_price: lowest ? lowest.price : null,
+best_price: lowest ? lowestPrice : null,
 best_retailer: lowest ? lowest.retailer : null,
+best_original_price: lowest && bestDiscountPct > 0 ? Number(lowest.price) : null,
+discount_percent: bestDiscountPct,
 savings_percent: savingsPct,
 offer_count: current.length,
-offers: annotated.map((o) => ({
+offers: annotated.map((o) => {
+const onSale = isOnSale(o);
+const oEffective = effectivePrice(o);
+return {
 id: o.id,
 retailer: o.retailer,
 price: o.price,
 sale_price: o.sale_price,
+effective_price: o.price != null ? oEffective : null,
+original_price: onSale ? Number(o.price) : null,
+discount_percent: discountPercent(o),
 currency: o.currency,
 availability: o.availability,
 in_stock: o.availability === 'in_stock',
@@ -68,8 +108,9 @@ product_url: o.affiliate_url,
 affiliate_url: o.affiliate_url,
 last_updated: o.last_updated,
 is_stale: o.is_stale,
-price_difference: lowest && o.price != null ? Math.round((Number(o.price) - Number(lowest.price)) * 100) / 100 : null,
-})),
+price_difference: lowest && o.price != null ? Math.round((oEffective - lowestPrice) * 100) / 100 : null,
+};
+}),
 };
 }
 
