@@ -119,11 +119,36 @@ price_difference: lowest && o.price != null ? Math.round((oEffective - lowestPri
 // contacted directly by the client.
 router.get('/', async (req, res) => {
 try {
-const { search, brand, category, minPrice, maxPrice, sort, limit, offset, includeUnavailable, retailer } = req.query;
+const { search, brand, category, minPrice, maxPrice, sort, limit, offset, includeUnavailable, retailer, categoryGroup } = req.query;
 
 let whereClause = 'WHERE 1=1';
 const params = [];
 let paramCount = 1;
+
+// `categoryGroup` powers the homepage's curated category rows (Makeup,
+// Skincare, Hair & Wigs — "Limited Time Deals" needs no SQL filter at
+// all, see below). It's kept separate from the plain `category` filter:
+// affiliate-feed retailers like ZlikeHair store their merchant's own
+// free-text category (e.g. "Wigs"), not the normalizeCategory() buckets
+// Amazon products get (see services/normalize.js), so "Hair & Wigs" has
+// to match on EITHER the normalized category OR a known hair/wig
+// retailer to actually include them.
+const HAIR_WIG_RETAILERS = ['awin_102013', 'zlikehair'];
+if (categoryGroup === 'makeup') {
+whereClause += ` AND p.category = $${paramCount}`;
+params.push('Makeup');
+paramCount++;
+} else if (categoryGroup === 'skincare') {
+whereClause += ` AND p.category = $${paramCount}`;
+params.push('Skincare');
+paramCount++;
+} else if (categoryGroup === 'hair') {
+whereClause += ` AND (p.category = $${paramCount} OR EXISTS (
+  SELECT 1 FROM offers o WHERE o.product_id = p.id AND o.retailer = ANY($${paramCount + 1}::text[])
+))`;
+params.push('Haircare', HAIR_WIG_RETAILERS);
+paramCount += 2;
+}
 
 // `retailer` may be a single code or a comma-separated list — a merchant
 // can have more than one retailer code on file (e.g. a legacy one-off
@@ -211,6 +236,15 @@ shaped = shaped.filter((p) => p.best_price != null);
 // stored column.
 if (minPrice) shaped = shaped.filter((p) => p.best_price != null && p.best_price >= Number(minPrice));
 if (maxPrice) shaped = shaped.filter((p) => p.best_price != null && p.best_price <= Number(maxPrice));
+
+// "Limited Time Deals" — every product with a genuine, source-reported
+// discount right now (same discount_percent field every other view
+// already sorts by), regardless of category or retailer. No SQL filter
+// makes sense here since the discount is computed during shaping, not
+// stored on the product row.
+if (categoryGroup === 'deals') {
+shaped = shaped.filter((p) => p.discount_percent > 0);
+}
 
 const withinGroupSort = sort === 'price_desc'
 ? (a, b) => (b.best_price ?? -1) - (a.best_price ?? -1)
