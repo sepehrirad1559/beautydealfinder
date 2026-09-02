@@ -91,7 +91,9 @@ main.page { max-width: 1120px; margin: 0 auto; padding: 26px 24px 40px; }
 .thumb img { width: 100%; height: 100%; object-fit: cover; }
 .thumb span { font-family: 'Bricolage Grotesque', sans-serif; font-size: 13px; color: var(--muted); }
 .save-badge { position: absolute; top: 12px; left: 12px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 800; padding: 4px 8px; border-radius: 7px; }
-.save-badge.discount-badge { background: var(--good); color: #fff; }
+.deal-tag { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.save-badge.discount-badge { position: static; background: var(--good); color: #fff; }
+.deal-label { font-size: 11px; font-weight: 600; color: var(--muted); background: var(--surface); padding: 3px 7px; border-radius: 6px; box-shadow: var(--shadow); }
 .brand { font-size: 11px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
 .title { font-size: 15px; font-weight: 600; line-height: 1.3; text-wrap: balance; }
 .card-meta { display: flex; justify-content: space-between; align-items: baseline; margin-top: auto; }
