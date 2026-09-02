@@ -212,11 +212,22 @@ shaped = shaped.filter((p) => p.best_price != null);
 if (minPrice) shaped = shaped.filter((p) => p.best_price != null && p.best_price >= Number(minPrice));
 if (maxPrice) shaped = shaped.filter((p) => p.best_price != null && p.best_price <= Number(maxPrice));
 
-const sortFn = sort === 'price_desc'
+const withinGroupSort = sort === 'price_desc'
 ? (a, b) => (b.best_price ?? -1) - (a.best_price ?? -1)
 : sort === 'rating'
 ? (a, b) => new Date(b.updated_at) - new Date(a.updated_at)
 : (a, b) => (a.best_price ?? Infinity) - (b.best_price ?? Infinity);
+// Products currently on a genuine sale (discount_percent > 0) always lead
+// every view — every brand/retailer filter and every sort order — with
+// whatever sort was requested only breaking ties within each group. This
+// applies uniformly regardless of category/brand/retailer filtering above,
+// since it runs on the already-filtered `shaped` list.
+const sortFn = (a, b) => {
+const aDeal = a.discount_percent > 0 ? 1 : 0;
+const bDeal = b.discount_percent > 0 ? 1 : 0;
+if (aDeal !== bDeal) return bDeal - aDeal;
+return withinGroupSort(a, b);
+};
 shaped.sort(sortFn);
 
 const pageLimit = Math.min(Number(limit) || 24, MAX_PRODUCT_ROWS);
