@@ -27,6 +27,17 @@
 //   Upload to Railway Console -> Files panel, then: node awinSync.js
 //
 // Meant to run on a schedule (see run-all.js + Railway Cron Job setup).
+//
+// PERFORMANCE NOTE (Sept 2026): originally did one row at a time — a
+// category lookup/insert, a product select-or-insert, and an offer
+// upsert, all as separate awaited round trips per row. Fine for small
+// feeds, but for a merchant like Zlike Hair with ~15,700 rows that meant
+// ~47,000 sequential DB round trips, which took 40+ minutes on Railway's
+// network. Rewritten below to batch: categories and existing products
+// are resolved with a handful of bulk queries up front, new products are
+// bulk-inserted, and offers are bulk-upserted in chunks — cuts a
+// multi-row feed down to a small, constant number of round trips instead
+// of ~3 per row.
 
 import { Pool } from 'pg';
 import zlib from 'zlib';
@@ -38,6 +49,13 @@ const pool = new Pool({
 
 const AWIN_DATAFEED_APIKEY = process.env.AWIN_DATAFEED_APIKEY;
 const AWIN_AFFID = process.env.AWIN_AFFID || '3062047';
+
+// How many offer rows to upsert per INSERT statement. Postgres has a
+// 65535 bind-parameter limit per statement; each offer row here binds 8
+// params, so 500 rows/chunk (4000 params) is comfortably under that
+// while still cutting a 15k-row feed to ~30 round trips instead of 15k.
+const OFFER_CHUNK_SIZE = 500;
+const PRODUCT_CHUNK_SIZE = 500;
 
 function normalize(s) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
@@ -132,6 +150,117 @@ async function downloadFeed(datafeedId) {
   );
 }
 
+// Splits an array into fixed-size chunks.
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+// Resolves category name -> id for every distinct category seen in this
+// feed with a small, constant number of round trips: one SELECT for all
+// names already in the table, then (if needed) one bulk INSERT for the
+// rest, instead of a SELECT-then-maybe-INSERT per row.
+async function resolveCategoryIds(names) {
+  const distinct = [...new Set(names.map((n) => (n && n.trim() ? n.trim() : 'Beauty')))];
+  const map = new Map();
+  if (!distinct.length) return map;
+
+  const existing = await pool.query(`SELECT id, name FROM categories WHERE name = ANY($1::text[])`, [distinct]);
+  for (const row of existing.rows) map.set(row.name, row.id);
+
+  const missing = distinct.filter((n) => !map.has(n));
+  if (missing.length) {
+    const values = missing.map((_, i) => `($${i + 1})`).join(',');
+    const ins = await pool.query(
+      `INSERT INTO categories (name) VALUES ${values}
+       ON CONFLICT (name) DO UPDATE SET name=EXCLUDED.name
+       RETURNING id, name`,
+      missing
+    );
+    for (const row of ins.rows) map.set(row.name, row.id);
+  }
+  return map;
+}
+
+// Resolves match_key -> product id for every distinct product in this
+// feed. Existing products are fetched with chunked bulk SELECTs; new
+// ones are created with chunked bulk INSERTs — replaces what used to be
+// one SELECT (and sometimes one INSERT) per row.
+async function resolveProductIds(rowsMeta) {
+  const byKey = new Map(); // match_key -> row meta (first occurrence wins for insert data)
+  for (const r of rowsMeta) if (!byKey.has(r.matchKey)) byKey.set(r.matchKey, r);
+  const allKeys = [...byKey.keys()];
+
+  const idByKey = new Map();
+  for (const keyChunk of chunk(allKeys, PRODUCT_CHUNK_SIZE)) {
+    const res = await pool.query(`SELECT id, match_key FROM products WHERE match_key = ANY($1::text[])`, [keyChunk]);
+    for (const row of res.rows) idByKey.set(row.match_key, row.id);
+  }
+
+  // Backfill missing images on existing products whose image is empty/placeholder.
+  const imageUpdates = [...byKey.values()].filter((r) => idByKey.has(r.matchKey) && r.imageUrl);
+  for (const group of chunk(imageUpdates, PRODUCT_CHUNK_SIZE)) {
+    await Promise.all(group.map((r) =>
+      pool.query(
+        `UPDATE products SET image_url=$1 WHERE id=$2 AND (image_url IS NULL OR image_url='' OR image_url LIKE 'https://placehold.co%')`,
+        [r.imageUrl, idByKey.get(r.matchKey)]
+      )
+    ));
+  }
+
+  const toCreate = allKeys.filter((k) => !idByKey.has(k));
+  let added = 0;
+  for (const keyChunk of chunk(toCreate, PRODUCT_CHUNK_SIZE)) {
+    const cols = ['brand_id', 'brand', 'product_name', 'category_id', 'category', 'image_url', 'match_key'];
+    const values = [];
+    const placeholders = keyChunk.map((key, i) => {
+      const r = byKey.get(key);
+      const base = i * cols.length;
+      values.push(r.brandId, r.advertiserName, r.productName, r.catId, r.category || 'Beauty', r.imageUrl, r.matchKey);
+      return `(${cols.map((_, j) => `$${base + j + 1}`).join(',')})`;
+    }).join(',');
+    // No ON CONFLICT here: products.match_key has a plain index but no
+    // unique constraint (unlike offers.retailer+retailer_product_id,
+    // which does), so ON CONFLICT would error at runtime. Safe without
+    // it anyway — toCreate was already filtered against a fresh SELECT
+    // above and de-duplicated by matchKey via the `byKey` Map, and this
+    // script only ever runs one instance at a time.
+    const ins = await pool.query(
+      `INSERT INTO products (${cols.join(',')}) VALUES ${placeholders}
+       RETURNING id, match_key`,
+      values
+    );
+    for (const row of ins.rows) idByKey.set(row.match_key, row.id);
+    added += ins.rows.length;
+  }
+
+  return { idByKey, added };
+}
+
+// Bulk-upserts offers in chunks instead of one INSERT ... ON CONFLICT per row.
+async function upsertOffers(offerRows) {
+  let updated = 0;
+  const cols = ['product_id', 'retailer_id', 'retailer', 'retailer_product_id', 'price', 'sale_price', 'currency', 'availability', 'affiliate_url'];
+  for (const group of chunk(offerRows, OFFER_CHUNK_SIZE)) {
+    const values = [];
+    const placeholders = group.map((o, i) => {
+      const base = i * cols.length;
+      values.push(o.productId, o.retailerId, o.retailerCode, o.merchantProductId, o.listPrice, o.salePrice, 'USD', o.availability, o.affiliateUrl);
+      return `(${cols.map((_, j) => `$${base + j + 1}`).join(',')}, NOW())`;
+    }).join(',');
+    await pool.query(
+      `INSERT INTO offers (${cols.join(',')}, last_updated) VALUES ${placeholders}
+       ON CONFLICT (retailer, retailer_product_id)
+       DO UPDATE SET price=EXCLUDED.price, sale_price=EXCLUDED.sale_price, availability=EXCLUDED.availability,
+                      affiliate_url=EXCLUDED.affiliate_url, last_updated=NOW()`,
+      values
+    );
+    updated += group.length;
+  }
+  return updated;
+}
+
 async function getOrCreateBrandId(name) {
   const norm = normalize(name);
   const res = await pool.query(`SELECT id FROM brands WHERE normalized_name=$1`, [norm]);
@@ -140,14 +269,6 @@ async function getOrCreateBrandId(name) {
     `INSERT INTO brands (name, normalized_name) VALUES ($1,$2) RETURNING id`,
     [name, norm]
   );
-  return ins.rows[0].id;
-}
-
-async function getOrCreateCategoryId(name) {
-  const catName = name && name.trim() ? name.trim() : 'Beauty';
-  const res = await pool.query(`SELECT id FROM categories WHERE name=$1`, [catName]);
-  if (res.rows.length) return res.rows[0].id;
-  const ins = await pool.query(`INSERT INTO categories (name) VALUES ($1) RETURNING id`, [catName]);
   return ins.rows[0].id;
 }
 
@@ -179,13 +300,12 @@ async function syncAdvertiser(programme) {
   }
   console.log(`${advertiserName}: ${rows.length} rows in feed`);
 
-  const seenProductIds = [];
-  let added = 0, updated = 0;
-
   let skippedNoName = 0, skippedNoId = 0, skippedNoLink = 0, skippedNoPrice = 0;
   let sampleLogged = false;
   let rowIdx = -1;
 
+  // Pass 1 (in memory, no DB calls): validate/parse every row.
+  const validRows = [];
   for (const r of rows) {
     rowIdx++;
     const productName = pick(r, 'product_name', 'title', 'name', 'product_title');
@@ -193,12 +313,6 @@ async function syncAdvertiser(programme) {
     const priceRaw = pick(r, 'search_price', 'display_price', 'store_price', 'price', 'sale_price', 'current_price');
     const priceStr = priceRaw.replace(/[^0-9.]/g, '');
     const price = parseFloat(priceStr);
-    // rrp_price is Awin's standard "recommended retail price" column — when
-    // a merchant reports one that's genuinely higher than the current
-    // selling price, that's a real, source-reported discount (never
-    // inferred/estimated here). price stays the original/RRP, sale_price
-    // becomes the current lower price, matching the price/sale_price
-    // convention used everywhere else (see productStore.js).
     const rrpRaw = pick(r, 'rrp_price', 'msrp', 'list_price', 'was_price');
     const rrpStr = rrpRaw.replace(/[^0-9.]/g, '');
     const rrp = parseFloat(rrpStr);
@@ -223,38 +337,42 @@ async function syncAdvertiser(programme) {
     if (!readyAffiliateUrl && !destUrl) { skippedNoLink++; continue; }
     if (isNaN(price)) { skippedNoPrice++; continue; }
 
-    const catId = await getOrCreateCategoryId(category);
     const matchKey = normalize(`${advertiserName} ${productName}`);
-
-    let prodRes = await pool.query(`SELECT id FROM products WHERE match_key=$1`, [matchKey]);
-    let productId;
-    if (prodRes.rows.length) {
-      productId = prodRes.rows[0].id;
-      if (imageUrl) {
-        await pool.query(`UPDATE products SET image_url=$1 WHERE id=$2 AND (image_url IS NULL OR image_url='' OR image_url LIKE 'https://placehold.co%')`, [imageUrl, productId]);
-      }
-    } else {
-      const ins = await pool.query(
-        `INSERT INTO products (brand_id, brand, product_name, category_id, category, image_url, match_key)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-        [brandId, advertiserName, productName, catId, category || 'Beauty', imageUrl, matchKey]
-      );
-      productId = ins.rows[0].id;
-      added++;
-    }
-
     const affiliateUrl = readyAffiliateUrl || awinLink(advertiserId, destUrl);
-    await pool.query(
-      `INSERT INTO offers (product_id, retailer_id, retailer, retailer_product_id, price, sale_price, currency, availability, affiliate_url, last_updated)
-       VALUES ($1,$2,$3,$4,$5,$6,'USD',$7,$8,NOW())
-       ON CONFLICT (retailer, retailer_product_id)
-       DO UPDATE SET price=$5, sale_price=$6, availability=$7, affiliate_url=$8, last_updated=NOW()`,
-      [productId, retailerId, retailerCode, merchantProductId, listPrice, salePrice, isInStock ? 'in_stock' : 'out_of_stock', affiliateUrl]
-    );
-    seenProductIds.push(merchantProductId);
-    updated++;
+
+    validRows.push({
+      advertiserName, productName, category, imageUrl, matchKey, brandId,
+      merchantProductId, listPrice, salePrice, affiliateUrl,
+      availability: isInStock ? 'in_stock' : 'out_of_stock',
+    });
   }
 
+  if (!validRows.length) {
+    console.log(`  -> 0 new, 0 updated, 0 marked out of stock`);
+    if (skippedNoName || skippedNoId || skippedNoLink || skippedNoPrice) {
+      console.log(`  -> skipped: ${skippedNoName} no name, ${skippedNoId} no product id, ${skippedNoLink} no link, ${skippedNoPrice} no valid price`);
+    }
+    return { added: 0, updated: 0, deactivated: 0 };
+  }
+
+  // Pass 2: resolve categories in bulk, then attach category ids.
+  const catMap = await resolveCategoryIds(validRows.map((r) => r.category));
+  for (const r of validRows) r.catId = catMap.get(r.category && r.category.trim() ? r.category.trim() : 'Beauty');
+
+  // Pass 3: resolve/create products in bulk.
+  const { idByKey, added } = await resolveProductIds(validRows);
+
+  // Pass 4: bulk-upsert offers.
+  const offerRows = validRows.map((r) => ({
+    productId: idByKey.get(r.matchKey),
+    retailerId, retailerCode,
+    merchantProductId: r.merchantProductId,
+    listPrice: r.listPrice, salePrice: r.salePrice,
+    availability: r.availability, affiliateUrl: r.affiliateUrl,
+  }));
+  const updated = await upsertOffers(offerRows);
+
+  const seenProductIds = validRows.map((r) => r.merchantProductId);
   let deactivated = 0;
   if (seenProductIds.length) {
     const staleRes = await pool.query(
