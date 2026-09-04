@@ -33,6 +33,12 @@ const pool = new Pool({
 const IMPACT_ACCOUNT_SID = process.env.IMPACT_ACCOUNT_SID;
 const IMPACT_AUTH_TOKEN = process.env.IMPACT_AUTH_TOKEN;
 
+// When true (default for this run), only items with a real discount
+// (OriginalPrice/ListPrice/Msrp higher than CurrentPrice) are imported.
+// Run with DISCOUNTS_ONLY=false to bring in full catalogs including
+// full-price items on a later pass.
+const DISCOUNTS_ONLY = process.env.DISCOUNTS_ONLY !== 'false';
+
 // Brands approved through Impact so far. `catalogId` comes from the
 // "Product Catalogs" list in the Impact dashboard (Content -> Product
 // Catalogs). Add a brand here only once its catalog actually appears in
@@ -40,11 +46,16 @@ const IMPACT_AUTH_TOKEN = process.env.IMPACT_AUTH_TOKEN;
 const IMPACT_CATALOGS = [
   { retailerSlug: 'hilo', brandName: 'Hilo', catalogId: '34999' },
   { retailerSlug: 'et-al-beauty-collective', brandName: 'et al. Beauty Collective', catalogId: '35338' },
-  // Luxeviora: approved on Impact, but as of the last check no catalog was
-  // listed under Content > Product Catalogs for this brand yet (Impact
-  // catalogs are populated by the brand, not the publisher). Add its
-  // catalogId here once it shows up in that list.
+  { retailerSlug: 'sprout-living', brandName: 'Sprout Living', catalogId: '31472' },
+  { retailerSlug: 'plantifique', brandName: 'Plantifique', catalogId: '34614' },
+  { retailerSlug: 'terra-and-co', brandName: 'Terra & Co.', catalogId: '35332' },
+  { retailerSlug: 'mom-aid', brandName: 'Mom Aid', catalogId: '36331' },
+  // Luxeviora, Idun Rx: approved on Impact, but as of the last check no
+  // catalog was listed under Content > Product Catalogs for these brands
+  // yet (Impact catalogs are populated by the brand, not the publisher).
+  // Add their catalogId here once one shows up in that list.
   // { retailerSlug: 'luxeviora', brandName: 'Luxeviora', catalogId: '' },
+  // { retailerSlug: 'idun-rx', brandName: 'Idun Rx', catalogId: '' },
 ];
 
 function normalize(s) {
@@ -150,7 +161,7 @@ async function syncCatalog({ retailerSlug, brandName, catalogId }) {
 
   const seenProductIds = [];
   let added = 0, updated = 0;
-  let skippedNoName = 0, skippedNoId = 0, skippedNoLink = 0, skippedNoPrice = 0;
+  let skippedNoName = 0, skippedNoId = 0, skippedNoLink = 0, skippedNoPrice = 0, skippedNoDiscount = 0;
   let sampleLogged = false;
 
   for (const it of rawItems) {
@@ -182,6 +193,7 @@ async function syncCatalog({ retailerSlug, brandName, catalogId }) {
     if (!merchantProductId) { skippedNoId++; continue; }
     if (!readyAffiliateUrl) { skippedNoLink++; continue; }
     if (isNaN(price)) { skippedNoPrice++; continue; }
+    if (DISCOUNTS_ONLY && !hasDiscount) { skippedNoDiscount++; continue; }
 
     const catId = await getOrCreateCategoryId(category);
     const matchKey = normalize(`${brandName} ${productName}`);
@@ -226,8 +238,8 @@ async function syncCatalog({ retailerSlug, brandName, catalogId }) {
   }
 
   console.log(`  -> ${added} new, ${updated} updated, ${deactivated} marked out of stock`);
-  if (skippedNoName || skippedNoId || skippedNoLink || skippedNoPrice) {
-    console.log(`  -> skipped: ${skippedNoName} no name, ${skippedNoId} no product id, ${skippedNoLink} no link, ${skippedNoPrice} no valid price`);
+  if (skippedNoName || skippedNoId || skippedNoLink || skippedNoPrice || skippedNoDiscount) {
+    console.log(`  -> skipped: ${skippedNoName} no name, ${skippedNoId} no product id, ${skippedNoLink} no link, ${skippedNoPrice} no valid price, ${skippedNoDiscount} no discount`);
   }
   return { added, updated, deactivated };
 }
@@ -236,7 +248,7 @@ async function main() {
   if (!IMPACT_ACCOUNT_SID || !IMPACT_AUTH_TOKEN) {
     throw new Error('Missing IMPACT_ACCOUNT_SID / IMPACT_AUTH_TOKEN environment variable(s).');
   }
-  console.log(`Syncing ${IMPACT_CATALOGS.length} Impact catalog(s)...\n`);
+  console.log(`Syncing ${IMPACT_CATALOGS.length} Impact catalog(s)... (DISCOUNTS_ONLY=${DISCOUNTS_ONLY})\n`);
 
   let totals = { added: 0, updated: 0, deactivated: 0 };
   for (const cat of IMPACT_CATALOGS) {
