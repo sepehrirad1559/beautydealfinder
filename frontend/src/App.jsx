@@ -305,11 +305,13 @@ export default function App() {
           <div className="hero-top">
             <div className="wordmark">BeautyPriceMatch<span className="dot">.com</span></div>
           </div>
-          <div className="hero-kicker">Real prices, one retailer live today</div>
+          <div className="hero-kicker">Real prices, {LIVE_RETAILER_GROUPS.length} retailers live today</div>
           <h1 className="display">Find the best price before you buy.</h1>
           <p className="hero-sub">
-            We're launching with real, live pricing from Amazon — {COMING_SOON_RETAILERS.map((r) => RETAILER_LABELS[r]).join(', ')}{' '}
-            are coming soon as we get set up with each retailer's affiliate program.
+            We're live with real pricing from Amazon and {LIVE_RETAILER_GROUPS.length - 1} affiliate partner brands.
+            {COMING_SOON_RETAILERS.length > 0 && (
+              <> {COMING_SOON_RETAILERS.map((r) => RETAILER_LABELS[r]).join(', ')} are coming soon as we get set up with each retailer's affiliate program.</>
+            )}
           </p>
           <div className="hero-status">
             {LIVE_RETAILER_GROUPS.map((g) => (
