@@ -50,6 +50,11 @@ const IMPACT_CATALOGS = [
   { retailerSlug: 'plantifique', brandName: 'Plantifique', catalogId: '34614' },
   { retailerSlug: 'terra-and-co', brandName: 'Terra & Co.', catalogId: '35332' },
   { retailerSlug: 'mom-aid', brandName: 'Mom Aid', catalogId: '36331' },
+  { retailerSlug: 'heritage-store', brandName: 'Heritage Store', catalogId: '32863' },
+  { retailerSlug: 'lanza', brandName: "L'ANZA", catalogId: '34618' },
+  { retailerSlug: 'anua', brandName: 'Anua', catalogId: '33700' },
+  { retailerSlug: 'isla-beauty', brandName: 'Isla Beauty', catalogId: '32889' },
+  { retailerSlug: 'dewsy', brandName: 'Dewsy', catalogId: '31000' },
   // Luxeviora, Idun Rx: approved on Impact, but as of the last check no
   // catalog was listed under Content > Product Catalogs for these brands
   // yet (Impact catalogs are populated by the brand, not the publisher).
