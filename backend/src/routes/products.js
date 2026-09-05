@@ -309,4 +309,20 @@ res.status(500).json({ error: 'Failed to fetch brands' });
 }
 });
 
+// GET /api/products/meta/categories — distinct categories with live
+// product counts, so category pages (and the frontend's own
+// indexability-tier logic) can tell a 5-product category apart from a
+// 500-product one without fetching the whole catalog first.
+router.get('/meta/categories', async (req, res) => {
+try {
+const { rows } = await pool.query(
+`SELECT category, COUNT(*) AS count FROM products WHERE category IS NOT NULL GROUP BY category ORDER BY category`
+);
+res.json({ categories: rows.map((r) => ({ name: r.category, count: Number(r.count) })) });
+} catch (error) {
+console.error('Error fetching categories:', error);
+res.status(500).json({ error: 'Failed to fetch categories' });
+}
+});
+
 export default router;
