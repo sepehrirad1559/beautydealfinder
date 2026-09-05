@@ -47,10 +47,12 @@ app.use(rateLimit({ windowMs: 60 * 1000, max: 120 }));
 const { default: productsRoutes } = await import('./routes/products.js');
 const { default: adminRoutes } = await import('./routes/admin.js');
 const { default: redirectRoutes } = await import('./routes/redirect.js');
+const { default: seoRoutes } = await import('./routes/seo.js');
 
 app.use('/api/products', productsRoutes);
 app.use('/admin', adminRoutes);
 app.use('/go', redirectRoutes);
+app.use('/api/seo', seoRoutes);
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
