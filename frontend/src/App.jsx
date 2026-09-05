@@ -55,6 +55,11 @@ const RETAILER_LABELS = {
   impact_plantifique: 'Plantifique',
   'impact_terra-and-co': 'Terra & Co.',
   'impact_mom-aid': 'Mom Aid',
+  'impact_heritage-store': 'Heritage Store',
+  impact_lanza: "L'ANZA",
+  impact_anua: 'Anua',
+  'impact_isla-beauty': 'Isla Beauty',
+  impact_dewsy: 'Dewsy',
 };
 
 // Which retailers actually have a working data source right now (see
@@ -69,6 +74,8 @@ const LIVE_RETAILERS = [
   'amazon', 'awin_102013', 'zlikehair', 'awin_108282',
   'impact_hilo', 'impact_et-al-beauty-collective', 'impact_sprout-living',
   'impact_plantifique', 'impact_terra-and-co', 'impact_mom-aid',
+  'impact_heritage-store', 'impact_lanza', 'impact_anua',
+  'impact_isla-beauty', 'impact_dewsy',
 ];
 const COMING_SOON_RETAILERS = Object.keys(RETAILER_LABELS).filter((r) => !LIVE_RETAILERS.includes(r));
 
