@@ -23,6 +23,17 @@ const RETAILER_LABELS = {
   awin_102013: 'ZlikeHair',
   zlikehair: 'ZlikeHair',
   awin_108282: 'Sol Labs',
+  // Impact.com official catalog feeds are stored as `impact_<slug>` (see
+  // backend/impactSync.js) — same reasoning as the Awin codes above, the
+  // raw code shouldn't reach a shopper, and the label here is just the
+  // brand name (no "(Impact)"/"impact_" suffix — that's an internal
+  // data-source detail, not something a shopper needs to see).
+  impact_hilo: 'Hilo',
+  'impact_et-al-beauty-collective': 'et al. Beauty Collective',
+  'impact_sprout-living': 'Sprout Living',
+  impact_plantifique: 'Plantifique',
+  'impact_terra-and-co': 'Terra & Co.',
+  'impact_mom-aid': 'Mom Aid',
 };
 
 // Which retailers actually have a working data source right now (see
@@ -33,7 +44,11 @@ const RETAILER_LABELS = {
 // silently drift out of sync with reality and imply a retailer is live
 // when it isn't — a comparison site's core promise is that its prices are
 // real, so this can't fudge it even for launch-day polish.
-const LIVE_RETAILERS = ['amazon', 'awin_102013', 'zlikehair', 'awin_108282'];
+const LIVE_RETAILERS = [
+  'amazon', 'awin_102013', 'zlikehair', 'awin_108282',
+  'impact_hilo', 'impact_et-al-beauty-collective', 'impact_sprout-living',
+  'impact_plantifique', 'impact_terra-and-co', 'impact_mom-aid',
+];
 const COMING_SOON_RETAILERS = Object.keys(RETAILER_LABELS).filter((r) => !LIVE_RETAILERS.includes(r));
 
 // Two+ retailer codes can share one merchant (e.g. `awin_102013` and the

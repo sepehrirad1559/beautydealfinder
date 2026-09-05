@@ -143,7 +143,7 @@ async function syncCatalog({ retailerSlug, brandName, catalogId }) {
     `INSERT INTO retailers (code, display_name, data_source, active)
      VALUES ($1,$2,'official_api',true)
      ON CONFLICT (code) DO UPDATE SET display_name=$2`,
-    [retailerCode, `${brandName} (Impact)`]
+    [retailerCode, brandName]
   );
   const retailerRes = await pool.query(`SELECT id FROM retailers WHERE code=$1`, [retailerCode]);
   const retailerId = retailerRes.rows[0].id;
