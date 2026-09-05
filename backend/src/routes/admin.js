@@ -136,7 +136,16 @@ router.get('/stats', requireAdminAccess, async (req, res) => {
        FROM clicks c JOIN offers o ON o.id = c.offer_id JOIN products p ON p.id = o.product_id
        GROUP BY p.id, p.product_name, o.retailer ORDER BY clicks DESC LIMIT 20`
     );
-    res.json({ clicksByRetailer, clicksLast7Days, topProducts });
+    // Marketing-source attribution — clicks whose visitor arrived via a
+    // tagged link (?sid=fb_<group>, ig_<post>, tiktok_<video>, etc. — see
+    // frontend's getSessionSid()/routes/redirect.js). Untagged direct/
+    // organic traffic has session_id NULL and is grouped as '(untagged)'
+    // so this total still reconciles with clicksByRetailer above.
+    const { rows: clicksBySource } = await pool.query(
+      `SELECT COALESCE(session_id, '(untagged)') AS source, COUNT(*) AS clicks
+       FROM clicks GROUP BY session_id ORDER BY clicks DESC LIMIT 50`
+    );
+    res.json({ clicksByRetailer, clicksLast7Days, topProducts, clicksBySource });
   } catch (error) {
     console.error('Stats error:', error);
     res.status(500).json({ error: 'Failed to fetch stats' });

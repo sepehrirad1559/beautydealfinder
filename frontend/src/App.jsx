@@ -2,6 +2,27 @@ import React, { useState, useEffect, useCallback } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:30011/api';
 const GO_BASE = API_URL.replace(/\/api\/?$/, '');
+
+// Marketing-source attribution: a link shared on Facebook/Instagram/TikTok
+// can carry ?sid=fb_<group> (or any tag) so we can later tell, in the
+// `clicks` table (see backend/src/routes/redirect.js), which social posts
+// actually drove someone to click "Buy at" — otherwise every click looks
+// identical regardless of where the visitor came from. Read once on first
+// load and persist for the rest of the browser session (sessionStorage),
+// since the sid param usually only survives the very first page load, not
+// every in-app navigation afterward.
+function getSessionSid() {
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get('sid');
+    if (fromUrl) {
+      sessionStorage.setItem('bdf_sid', fromUrl);
+      return fromUrl;
+    }
+    return sessionStorage.getItem('bdf_sid') || '';
+  } catch {
+    return '';
+  }
+}
 // Keep in sync with the backend's own page-size cap (MAX_PAGE_SIZE in
 // backend/src/routes/products.js) — this is a single-page catalog view
 // today (no "load more"), so we ask for as many as the backend will hand
@@ -198,11 +219,12 @@ function ProductDetailDrawer({ product, onClose }) {
                   const effective = effectiveOf(offer);
                   const isBest = effective != null && effective === lowestPrice;
                   const discountPct = offer.discount_percent || 0;
+                  const sid = getSessionSid();
                   return (
                     <a
                       key={offer.id}
                       className={`offer${isBest ? ' best' : ''}`}
-                      href={`${GO_BASE}/go/offer/${offer.id}`}
+                      href={`${GO_BASE}/go/offer/${offer.id}${sid ? `?sid=${encodeURIComponent(sid)}` : ''}`}
                       target="_blank"
                       rel="noopener noreferrer sponsored"
                     >
