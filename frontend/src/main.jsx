@@ -6,6 +6,7 @@ import ProductPage from './pages/ProductPage.jsx';
 import BrandPage from './pages/BrandPage.jsx';
 import CategoryPage from './pages/CategoryPage.jsx';
 import DealsPage from './pages/DealsPage.jsx';
+import AdminPage from './pages/AdminPage.jsx';
 import './App.css';
 
 // Route map, matching the URL structure in the SEO strategy doc (Part 1):
@@ -14,6 +15,8 @@ import './App.css';
 //   /brand/:brandSlug          brand hub
 //   /category/:categorySlug    category hub
 //   /deals                     deals hub
+//   /admin                     password-gated ops dashboard (noindex, not
+//                              linked from anywhere in the site nav)
 // There's deliberately no separate /compare/ or /vs/ route yet — with most
 // products currently carrying a single retailer offer, those page types
 // would fail their own indexability gate (see Part 3/4 of the strategy
@@ -26,6 +29,7 @@ const routes = [
   { path: '/brand/:brandSlug', Component: BrandPage },
   { path: '/category/:categorySlug', Component: CategoryPage },
   { path: '/deals', Component: DealsPage },
+  { path: '/admin', Component: AdminPage },
   { path: '/', Component: App },
 ];
 
