@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Link } from './router.js';
+import { productPath } from './slug.js';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:30011/api';
-const GO_BASE = API_URL.replace(/\/api\/?$/, '');
+export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:30011/api';
+export const GO_BASE = API_URL.replace(/\/api\/?$/, '');
 
 // Marketing-source attribution: a link shared on Facebook/Instagram/TikTok
 // can carry ?sid=fb_<group> (or any tag) so we can later tell, in the
@@ -11,7 +13,7 @@ const GO_BASE = API_URL.replace(/\/api\/?$/, '');
 // load and persist for the rest of the browser session (sessionStorage),
 // since the sid param usually only survives the very first page load, not
 // every in-app navigation afterward.
-function getSessionSid() {
+export function getSessionSid() {
   try {
     const fromUrl = new URLSearchParams(window.location.search).get('sid');
     if (fromUrl) {
@@ -29,7 +31,7 @@ function getSessionSid() {
 // back in one response.
 const MAX_PAGE_SIZE = 5000;
 
-const RETAILER_LABELS = {
+export const RETAILER_LABELS = {
   amazon: 'Amazon',
   sephora: 'Sephora',
   ulta: 'Ulta Beauty',
@@ -70,7 +72,7 @@ const RETAILER_LABELS = {
 // silently drift out of sync with reality and imply a retailer is live
 // when it isn't — a comparison site's core promise is that its prices are
 // real, so this can't fudge it even for launch-day polish.
-const LIVE_RETAILERS = [
+export const LIVE_RETAILERS = [
   'amazon', 'awin_102013', 'zlikehair', 'awin_108282',
   'impact_hilo', 'impact_et-al-beauty-collective', 'impact_sprout-living',
   'impact_plantifique', 'impact_terra-and-co', 'impact_mom-aid',
@@ -85,7 +87,7 @@ const COMING_SOON_RETAILERS = Object.keys(RETAILER_LABELS).filter((r) => !LIVE_R
 // their displayed label first, and keep every code in the group so a click
 // filters by all of them at once (the backend's `retailer` param accepts a
 // comma-separated list).
-const LIVE_RETAILER_GROUPS = Object.values(
+export const LIVE_RETAILER_GROUPS = Object.values(
   LIVE_RETAILERS.reduce((groups, code) => {
     const label = RETAILER_LABELS[code] || code;
     if (!groups[label]) groups[label] = { label, codes: [] };
@@ -94,7 +96,7 @@ const LIVE_RETAILER_GROUPS = Object.values(
   }, {})
 );
 
-function AffiliateDisclosure({ className }) {
+export function AffiliateDisclosure({ className }) {
   return (
     <p className={`disclosure${className ? ` ${className}` : ''}`}>
       Disclosure: BeautyPriceMatch is an independent price-comparison site. We don't sell products
@@ -104,7 +106,7 @@ function AffiliateDisclosure({ className }) {
   );
 }
 
-function ProductCard({ product, onSelect }) {
+export function ProductCard({ product, onSelect }) {
   const offers = product.offers || [];
   const bestOffer = offers[0];
   const worstPrice = offers.reduce((max, o) => (o.price != null && o.price > max ? o.price : max), 0);
@@ -145,6 +147,13 @@ function ProductCard({ product, onSelect }) {
       {bestOffer && (
         <div className="bestat">Best at <b>{RETAILER_LABELS[bestOffer.retailer] || bestOffer.retailer}</b></div>
       )}
+    {/* Real, crawlable link to the product's own indexable page — this is
+          the anchor Googlebot needs to discover /p/ pages from the homepage
+          and category rows; the surrounding div's onClick above only drives
+          the quick-view drawer for interactive visitors. */}
+      <Link to={productPath(product)} className="card-detail-link" onClick={(e) => e.stopPropagation()}>
+        Full price comparison →
+      </Link>
     </div>
   );
 }
