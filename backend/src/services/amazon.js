@@ -174,7 +174,7 @@ const DEFAULT_SEARCH_TERMS = [
 export async function syncAmazonProducts(searchTerms = DEFAULT_SEARCH_TERMS) {
   if (!isConfigured()) {
     console.error('Amazon PA-API not configured — skipping Amazon sync.');
-    return { success: false, error: 'AMAZON_ACCESS_KEY/AMAZON_SECRET_KEY/AMAZON_PARTNER_TAG not configured' };
+    return { success: false, skipped: true, error: 'AMAZON_ACCESS_KEY/AMAZON_SECRET_KEY/AMAZON_PARTNER_TAG not configured' };
   }
 
   let totalFound = 0;
