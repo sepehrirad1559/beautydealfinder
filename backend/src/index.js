@@ -88,7 +88,7 @@ async function start() {
           recordsReceived: result.totalFound ?? null,
           recordsUpdated: result.totalStored ?? null,
           productsCreated: result.productsCreated ?? null,
-          status: result.success ? 'success' : 'error', errorMessage: result.error ?? null,
+          status: result.skipped ? 'skipped' : (result.success ? 'success' : 'error'), errorMessage: result.error ?? null,
         });
       } catch (err) {
         console.error(`Scheduled ${name} sync failed:`, err);
