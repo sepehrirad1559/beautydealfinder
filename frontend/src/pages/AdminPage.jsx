@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { API_URL } from '../App.jsx';
+import { API_URL, GO_BASE } from '../App.jsx';
 import { useSeo } from '../seo.js';
 
 // Password-gated ops dashboard (Search Console/social-performance requests
@@ -41,8 +41,8 @@ export default function AdminPage() {
     try {
       const headers = { Authorization: `Bearer ${activeToken}` };
       const [healthRes, statsRes] = await Promise.all([
-        fetch(`${API_URL}/admin/health`, { headers }),
-        fetch(`${API_URL}/admin/stats`, { headers }),
+        fetch(`${GO_BASE}/admin/health`, { headers }),
+        fetch(`${GO_BASE}/admin/stats`, { headers }),
       ]);
       if (healthRes.status === 401 || statsRes.status === 401) {
         sessionStorage.removeItem(TOKEN_KEY);
@@ -69,7 +69,7 @@ export default function AdminPage() {
     setLoginError('');
     setLoggingIn(true);
     try {
-      const res = await fetch(`${API_URL}/admin/auth/login`, {
+      const res = await fetch(`${GO_BASE}/admin/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password }),
