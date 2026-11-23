@@ -2,355 +2,266 @@ import express from 'express';
 import { pool } from '../db.js';
 
 const router = express.Router();
-const MAX_PRODUCT_ROWS = 5000;
 
-// An offer whose price/availability hasn't been reconfirmed by its source
-// (Amazon PA-API or an affiliate feed) in this long is not shown as a
-// current deal — see services/productStore.js for how last_updated gets
-// set (every successful sync touches it, even when the price didn't
-// change), and README/DEPLOYMENT for how often syncs run.
+const DEFAULT_PAGE_SIZE = 24;
+const MAX_PAGE_SIZE = 200;
 const STALE_OFFER_HOURS = Number(process.env.STALE_OFFER_HOURS || 48);
 
 function withFreshness(offer) {
-const ageMs = Date.now() - new Date(offer.last_updated).getTime();
-const isStale = ageMs > STALE_OFFER_HOURS * 60 * 60 * 1000;
-return { ...offer, is_stale: isStale };
+    const ageMs = Date.now() - new Date(offer.last_updated).getTime();
+    const isStale = ageMs > STALE_OFFER_HOURS * 60 * 60 * 1000;
+    return { ...offer, is_stale: isStale };
 }
 
-// An offer is "on sale" when its sale_price is a real, lower number than
-// its (list/original) price — sale_price is only ever populated by a
-// source that actually reports a discount (see services/productStore.js
-// and awinSync.js's rrp_price handling), so this is never inferred, only
-// read from what the retailer's own feed/API said.
 function isOnSale(offer) {
-return offer.sale_price != null
-&& Number(offer.sale_price) > 0
-&& offer.price != null
-&& Number(offer.sale_price) < Number(offer.price);
+    return offer.sale_price != null
+      && Number(offer.sale_price) > 0
+      && offer.price != null
+      && Number(offer.sale_price) < Number(offer.price);
 }
 
-// The price that actually applies right now — the sale price when the
-// offer is genuinely on sale, otherwise the regular price. Every price
-// comparison (best_price, cross-retailer savings, sort order) uses this
-// so a discounted offer is correctly treated as cheaper than its own
-// undiscounted list price.
 function effectivePrice(offer) {
-return isOnSale(offer) ? Number(offer.sale_price) : Number(offer.price);
+    return isOnSale(offer) ? Number(offer.sale_price) : Number(offer.price);
 }
 
 function discountPercent(offer) {
-if (!isOnSale(offer)) return 0;
-return Math.round((1 - Number(offer.sale_price) / Number(offer.price)) * 100);
+    if (!isOnSale(offer)) return 0;
+    return Math.round((1 - Number(offer.sale_price) / Number(offer.price)) * 100);
 }
 
-// Shapes one product + its offers into the response the frontend expects:
-// `title`/`best_price`/`offers[]` (kept stable across the schema change so
-// the existing UI needs no changes), plus explicit price-comparison fields
-// per spec: lowest price, other retailer prices, price difference,
-// savings percentage, availability, retailer, and affiliate URL. Stale
-// offers are excluded from the "current" price comparison entirely (never
-// presented as a live deal), but still returned (flagged) so the frontend
-// could show "last checked X ago" if desired.
 function dedupeOffersByRetailer(annotated) {
-// Some affiliate feeds (Impact.com in particular) list the same physical
-// product multiple times under different retailer_product_id values (sub-
-// affiliate/reseller duplicates) -- these all correctly match to one
-// product via match_key, but showing 40+ near-identical "offers" from a
-// single retailer is meaningless for a price-comparison page. Collapse to
-// one representative offer per retailer: prefer a fresh, in-stock, priced
-// offer over a stale/oos/unpriced one, then the lower price, then the
-// most recently updated.
-const byRetailer = new Map();
-const score = (o) => (o.is_stale ? 0 : 4) + (o.availability === 'in_stock' ? 2 : 0) + (o.price != null ? 1 : 0);
-for (const o of annotated) {
-const existing = byRetailer.get(o.retailer);
-if (!existing) { byRetailer.set(o.retailer, o); continue; }
-const sExisting = score(existing);
-const sNew = score(o);
-if (sNew > sExisting) { byRetailer.set(o.retailer, o); continue; }
-if (sNew < sExisting) continue;
-const existingPrice = existing.price != null ? Number(existing.sale_price || existing.price) : Infinity;
-const newPrice = o.price != null ? Number(o.sale_price || o.price) : Infinity;
-if (newPrice < existingPrice) { byRetailer.set(o.retailer, o); continue; }
-if (newPrice === existingPrice && new Date(o.last_updated) > new Date(existing.last_updated)) {
-byRetailer.set(o.retailer, o);
-}
-}
-return [...byRetailer.values()];
+    const byRetailer = new Map();
+    const score = (o) => (o.is_stale ? 0 : 4) + (o.availability === 'in_stock' ? 2 : 0) + (o.price != null ? 1 : 0);
+    for (const o of annotated) {
+          const existing = byRetailer.get(o.retailer);
+          if (!existing) { byRetailer.set(o.retailer, o); continue; }
+          const sExisting = score(existing);
+          const sNew = score(o);
+          if (sNew > sExisting) { byRetailer.set(o.retailer, o); continue; }
+          if (sNew < sExisting) continue;
+          const existingPrice = existing.price != null ? Number(existing.sale_price || existing.price) : Infinity;
+          const newPrice = o.price != null ? Number(o.sale_price || o.price) : Infinity;
+          if (newPrice < existingPrice) { byRetailer.set(o.retailer, o); continue; }
+          if (newPrice === existingPrice && new Date(o.last_updated) > new Date(existing.last_updated)) {
+                  byRetailer.set(o.retailer, o);
+          }
+    }
+    return [...byRetailer.values()];
 }
 
 function shapeProduct(product, offers) {
-const annotated = dedupeOffersByRetailer(offers.map(withFreshness));
-const current = annotated.filter((o) => !o.is_stale && o.availability !== 'out_of_stock' && o.price != null);
-const sortedCurrent = [...current].sort((a, b) => effectivePrice(a) - effectivePrice(b));
+    const annotated = dedupeOffersByRetailer(offers.map(withFreshness));
+    const current = annotated.filter((o) => !o.is_stale && o.availability !== 'out_of_stock' && o.price != null);
+    const sortedCurrent = [...current].sort((a, b) => effectivePrice(a) - effectivePrice(b));
 
-const lowest = sortedCurrent[0] || null;
-const highest = sortedCurrent[sortedCurrent.length - 1] || null;
-const lowestPrice = lowest ? effectivePrice(lowest) : null;
-const highestPrice = highest ? effectivePrice(highest) : null;
-const savingsPct = lowest && highest && highestPrice > 0 && lowest.id !== highest.id
-? Math.round((1 - lowestPrice / highestPrice) * 100)
-: 0;
-// The discount on the best (cheapest, currently-selected) offer itself —
-// a genuine "this listing is marked down" signal, distinct from
-// savings_percent above (which compares across different retailers).
-const bestDiscountPct = lowest ? discountPercent(lowest) : 0;
+  const lowest = sortedCurrent[0] || null;
+    const highest = sortedCurrent[sortedCurrent.length - 1] || null;
+    const lowestPrice = lowest ? effectivePrice(lowest) : null;
+    const highestPrice = highest ? effectivePrice(highest) : null;
+    const savingsPct = lowest && highest && highestPrice > 0 && lowest.id !== highest.id
+      ? Math.round((1 - lowestPrice / highestPrice) * 100)
+          : 0;
+    const bestDiscountPct = lowest ? discountPercent(lowest) : 0;
 
-return {
-id: product.id,
-brand: product.brand,
-title: product.product_name,
-product_name: product.product_name,
-category: product.category,
-subcategory: product.subcategory,
-description: product.description,
-upc: product.upc,
-ean: product.ean,
-gtin: product.gtin,
-sku: product.sku,
-size: product.size,
-shade: product.shade,
-image_url: product.image_url,
-updated_at: product.updated_at,
-best_price: lowest ? lowestPrice : null,
-best_retailer: lowest ? lowest.retailer : null,
-best_original_price: lowest && bestDiscountPct > 0 ? Number(lowest.price) : null,
-discount_percent: bestDiscountPct,
-savings_percent: savingsPct,
-offer_count: current.length,
-offers: annotated.map((o) => {
-const onSale = isOnSale(o);
-const oEffective = effectivePrice(o);
-return {
-id: o.id,
-retailer: o.retailer,
-price: o.price,
-sale_price: o.sale_price,
-effective_price: o.price != null ? oEffective : null,
-original_price: onSale ? Number(o.price) : null,
-discount_percent: discountPercent(o),
-currency: o.currency,
-availability: o.availability,
-in_stock: o.availability === 'in_stock',
-product_url: o.affiliate_url,
-affiliate_url: o.affiliate_url,
-last_updated: o.last_updated,
-is_stale: o.is_stale,
-price_difference: lowest && o.price != null ? Math.round((oEffective - lowestPrice) * 100) / 100 : null,
-};
-}),
-};
+  return {
+        id: product.id,
+        brand: product.brand,
+        title: product.product_name,
+        product_name: product.product_name,
+        category: product.category,
+        subcategory: product.subcategory,
+        description: product.description,
+        upc: product.upc,
+        ean: product.ean,
+        gtin: product.gtin,
+        sku: product.sku,
+        size: product.size,
+        shade: product.shade,
+        image_url: product.image_url,
+        updated_at: product.updated_at,
+        best_price: lowest ? lowestPrice : null,
+        best_retailer: lowest ? lowest.retailer : null,
+        best_original_price: lowest && bestDiscountPct > 0 ? Number(lowest.price) : null,
+        discount_percent: bestDiscountPct,
+        savings_percent: savingsPct,
+        offer_count: current.length,
+        offers: annotated.map((o) => {
+                const onSale = isOnSale(o);
+                const oEffective = effectivePrice(o);
+                return {
+                          id: o.id,
+                          retailer: o.retailer,
+                          price: o.price,
+                          sale_price: o.sale_price,
+                          effective_price: o.price != null ? oEffective : null,
+                          original_price: onSale ? Number(o.price) : null,
+                          discount_percent: discountPercent(o),
+                          currency: o.currency,
+                          availability: o.availability,
+                          in_stock: o.availability === 'in_stock',
+                          product_url: o.affiliate_url,
+                          affiliate_url: o.affiliate_url,
+                          last_updated: o.last_updated,
+                          is_stale: o.is_stale,
+                          price_difference: lowest && o.price != null ? Math.round((oEffective - lowestPrice) * 100) / 100 : null,
+                };
+        }),
+  };
 }
 
-// GET /api/products — search/filter/sort the central product catalog. The
-// frontend never queries anything but this API — no retailer site is ever
-// contacted directly by the client.
-router.get('/', async (req, res) => {
-try {
-const { search, brand, category, minPrice, maxPrice, sort, limit, offset, includeUnavailable, retailer, categoryGroup } = req.query;
-
-let whereClause = 'WHERE 1=1';
-const params = [];
-let paramCount = 1;
-
-// `categoryGroup` powers the homepage's curated category rows (Makeup,
-// Skincare, Hair & Wigs — "Limited Time Deals" needs no SQL filter at
-// all, see below). It's kept separate from the plain `category` filter:
-// affiliate-feed retailers like ZlikeHair store their merchant's own
-// free-text category (e.g. "Wigs"), not the normalizeCategory() buckets
-// Amazon products get (see services/normalize.js), so "Hair & Wigs" has
-// to match on EITHER the normalized category OR a known hair/wig
-// retailer to actually include them.
 const HAIR_WIG_RETAILERS = ['awin_102013', 'zlikehair'];
-if (categoryGroup === 'makeup') {
-whereClause += ` AND p.category = $${paramCount}`;
-params.push('Makeup');
-paramCount++;
-} else if (categoryGroup === 'skincare') {
-whereClause += ` AND p.category = $${paramCount}`;
-params.push('Skincare');
-paramCount++;
-} else if (categoryGroup === 'hair') {
-whereClause += ` AND (p.category = $${paramCount} OR EXISTS (
-  SELECT 1 FROM offers o WHERE o.product_id = p.id AND o.retailer = ANY($${paramCount + 1}::text[])
-))`;
-params.push('Haircare', HAIR_WIG_RETAILERS);
-paramCount += 2;
+
+function buildFilters(query) {
+    const { search, brand, category, retailer, categoryGroup, includeUnavailable } = query;
+    const params = [];
+    const add = (v) => { params.push(v); return `$${params.length}`; };
+    let where = 'WHERE 1=1';
+
+  if (categoryGroup === 'makeup') {
+        where += ` AND p.category = ${add('Makeup')}`;
+  } else if (categoryGroup === 'skincare') {
+        where += ` AND p.category = ${add('Skincare')}`;
+  } else if (categoryGroup === 'hair') {
+        where += ` AND (p.category = ${add('Haircare')} OR EXISTS (
+              SELECT 1 FROM offers ohw WHERE ohw.product_id = p.id AND ohw.retailer = ANY(${add(HAIR_WIG_RETAILERS)}::text[])
+                  ))`;
+  }
+
+  if (retailer) {
+        const codes = String(retailer).split(',').map((r) => r.trim()).filter(Boolean);
+        where += ` AND EXISTS (
+              SELECT 1 FROM offers ort WHERE ort.product_id = p.id AND ort.retailer = ANY(${add(codes)}::text[])
+                  )`;
+  }
+
+  if (search) where += ` AND (p.product_name ILIKE ${add(`%${search}%`)} OR p.brand ILIKE ${add(`%${search}%`)})`;
+    if (brand) where += ` AND p.brand = ${add(brand)}`;
+    if (category) where += ` AND p.category = ${add(category)}`;
+
+  if (!includeUnavailable && categoryGroup === 'deals') {
+        where += ' AND b.discount_percent > 0';
+  }
+
+  return { where, params, add };
 }
 
-// `retailer` may be a single code or a comma-separated list — a merchant
-// can have more than one retailer code on file (e.g. a legacy one-off
-// import script used a different code than the current Awin sync), and
-// the frontend's "Best at X" filter pills need to match every code that
-// resolves to the same displayed retailer name.
-if (retailer) {
-whereClause += ` AND EXISTS (
-  SELECT 1 FROM offers o
-  WHERE o.product_id = p.id
-    AND o.retailer = ANY($${paramCount}::text[])
-)`;
-params.push(String(retailer).split(',').map((r) => r.trim()).filter(Boolean));
-paramCount++;
-}
+router.get('/', async (req, res) => {
+    try {
+          const { minPrice, maxPrice, sort, limit, offset, includeUnavailable } = req.query;
+          const includeAll = !!includeUnavailable;
 
-if (search) {
-whereClause += ` AND (p.product_name ILIKE $${paramCount} OR p.brand ILIKE $${paramCount})`;
-params.push(`%${search}%`);
-paramCount++;
-}
-if (brand) {
-whereClause += ` AND p.brand = $${paramCount}`;
-params.push(brand);
-paramCount++;
-}
-if (category) {
-whereClause += ` AND p.category = $${paramCount}`;
-params.push(category);
-paramCount++;
-}
+      const { where, params, add } = buildFilters(req.query);
 
-// Restrict to products with a live offer BEFORE the row cap below, not
-// after — a sync run can touch thousands of out-of-stock rows in a row
-// (they're processed in whatever order the source feed lists them), and
-// filtering for availability only after limiting to the 5000 most
-// recently-updated products meant a big out-of-stock batch could push
-// every in-stock product out of that window, showing 0 results mid-sync
-// even though plenty of products actually have a live price. Doing the
-// filter in SQL, before LIMIT, avoids that.
-if (!includeUnavailable) {
-whereClause += ` AND EXISTS (
-  SELECT 1 FROM offers o
-  WHERE o.product_id = p.id
-    AND o.availability = 'in_stock'
-    AND o.price IS NOT NULL
-    AND o.last_updated > NOW() - INTERVAL '${STALE_OFFER_HOURS} hours'
-)`;
-}
+      const staleHoursParam = add(STALE_OFFER_HOURS);
+          const bestOfferCte = `
+                SELECT DISTINCT ON (o.product_id)
+                        o.product_id, o.retailer, o.price, o.sale_price, o.discount_percent, o.last_updated,
+                                COALESCE(o.sale_price, o.price) AS effective_price
+                                      FROM offers o
+                                            WHERE o.availability = 'in_stock' AND o.price IS NOT NULL
+                                                    AND o.last_updated > NOW() - (${staleHoursParam} || ' hours')::interval
+                                                          ORDER BY o.product_id, COALESCE(o.sale_price, o.price) ASC, o.last_updated DESC
+                                                              `;
 
-const { rows: products } = await pool.query(
-`SELECT p.* FROM products p ${whereClause} ORDER BY p.updated_at DESC LIMIT ${MAX_PRODUCT_ROWS}`,
-params
-);
+      const joinType = includeAll ? 'LEFT JOIN' : 'JOIN';
+          let where2 = where;
+          if (minPrice) where2 += ` AND b.effective_price >= ${add(Number(minPrice))}`;
+          if (maxPrice) where2 += ` AND b.effective_price <= ${add(Number(maxPrice))}`;
 
-if (products.length === 0) {
-return res.json({ products: [], total: 0 });
-}
+      const sortExpr = sort === 'price_desc'
+            ? 'b.effective_price DESC NULLS LAST'
+              : sort === 'rating'
+              ? 'p.updated_at DESC'
+                : 'b.effective_price ASC NULLS LAST';
+          const orderBy = `ORDER BY (COALESCE(b.discount_percent, 0) > 0) DESC, ${sortExpr}`;
 
-const ids = products.map((p) => p.id);
-const { rows: offers } = await pool.query(
-`SELECT * FROM offers WHERE product_id = ANY($1::int[]) ORDER BY price ASC NULLS LAST`,
-[ids]
-);
-const offersByProduct = new Map();
-for (const offer of offers) {
-if (!offersByProduct.has(offer.product_id)) offersByProduct.set(offer.product_id, []);
-offersByProduct.get(offer.product_id).push(offer);
-}
+      const pageLimit = Math.min(Number(limit) || DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
+          const pageOffset = Math.max(Number(offset) || 0, 0);
+          const limitParam = add(pageLimit);
+          const offsetParam = add(pageOffset);
 
-let shaped = products.map((p) => shapeProduct(p, offersByProduct.get(p.id) || []));
+      const baseFrom = `
+            FROM products p
+                  ${joinType} (${bestOfferCte}) b ON b.product_id = p.id
+                        ${where2}
+                            `;
 
-// Hide products with no current (in-stock, non-stale) offer by default —
-// a card with no price is dead weight in the grid ("Price unavailable"),
-// so unless the caller explicitly asks for everything (?includeUnavailable=1,
-// e.g. for an internal/admin view), only show products that actually have
-// a live price right now. The row itself is never deleted — a future sync
-// that brings the item back in stock makes it reappear automatically.
-if (!includeUnavailable) {
-shaped = shaped.filter((p) => p.best_price != null);
-}
+      const [{ rows: products }, { rows: countRows }] = await Promise.all([
+              pool.query(
+                        `SELECT p.*, b.effective_price AS best_price, b.retailer AS best_retailer,
+                                        b.price AS best_list_price, COALESCE(b.discount_percent, 0) AS best_discount_percent
+                                                 ${baseFrom}
+                                                          ${orderBy}
+                                                                   LIMIT ${limitParam} OFFSET ${offsetParam}`,
+                        params
+                      ),
+              pool.query(`SELECT COUNT(*) AS total ${baseFrom}`, params.slice(0, params.length - 2)),
+            ]);
 
-// best_price/minPrice/maxPrice filtering happens after shaping since
-// best_price is computed (lowest non-stale, in-stock offer), not a
-// stored column.
-if (minPrice) shaped = shaped.filter((p) => p.best_price != null && p.best_price >= Number(minPrice));
-if (maxPrice) shaped = shaped.filter((p) => p.best_price != null && p.best_price <= Number(maxPrice));
+      const total = Number(countRows[0]?.total || 0);
 
-// "Limited Time Deals" — every product with a genuine, source-reported
-// discount right now (same discount_percent field every other view
-// already sorts by), regardless of category or retailer. No SQL filter
-// makes sense here since the discount is computed during shaping, not
-// stored on the product row.
-if (categoryGroup === 'deals') {
-shaped = shaped.filter((p) => p.discount_percent > 0);
-}
+      if (products.length === 0) {
+              return res.json({ products: [], total });
+      }
 
-const withinGroupSort = sort === 'price_desc'
-? (a, b) => (b.best_price ?? -1) - (a.best_price ?? -1)
-: sort === 'rating'
-? (a, b) => new Date(b.updated_at) - new Date(a.updated_at)
-: (a, b) => (a.best_price ?? Infinity) - (b.best_price ?? Infinity);
-// Products currently on a genuine sale (discount_percent > 0) always lead
-// every view — every brand/retailer filter and every sort order — with
-// whatever sort was requested only breaking ties within each group. This
-// applies uniformly regardless of category/brand/retailer filtering above,
-// since it runs on the already-filtered `shaped` list.
-const sortFn = (a, b) => {
-const aDeal = a.discount_percent > 0 ? 1 : 0;
-const bDeal = b.discount_percent > 0 ? 1 : 0;
-if (aDeal !== bDeal) return bDeal - aDeal;
-return withinGroupSort(a, b);
-};
-shaped.sort(sortFn);
+      const ids = products.map((p) => p.id);
+          const { rows: offers } = await pool.query(
+                  `SELECT * FROM offers WHERE product_id = ANY($1::int[]) ORDER BY price ASC NULLS LAST`,
+                  [ids]
+                );
+          const offersByProduct = new Map();
+          for (const offer of offers) {
+                  if (!offersByProduct.has(offer.product_id)) offersByProduct.set(offer.product_id, []);
+                  offersByProduct.get(offer.product_id).push(offer);
+          }
 
-const pageLimit = Math.min(Number(limit) || 24, MAX_PRODUCT_ROWS);
-const pageOffset = Number(offset) || 0;
-const paged = shaped.slice(pageOffset, pageOffset + pageLimit);
+      const shaped = products.map((p) => shapeProduct(p, offersByProduct.get(p.id) || []));
 
-res.json({ products: paged, total: shaped.length });
-} catch (error) {
-console.error('Error fetching products:', error);
-res.status(500).json({ error: 'Failed to fetch products' });
-}
+      res.json({ products: shaped, total });
+    } catch (error) {
+          console.error('Error fetching products:', error);
+          res.status(500).json({ error: 'Failed to fetch products' });
+    }
 });
 
-// GET /api/products/:id — single product detail with full offer list,
-// pulled entirely from the central database (products + offers). Detail
-// pages still show even when currently out of stock (so "Price unavailable"
-// with a "was $X" note is a reasonable thing to render there), unlike the
-// list endpoint above which hides those cards entirely.
 router.get('/:id', async (req, res) => {
-try {
-const { rows: productRows } = await pool.query('SELECT * FROM products WHERE id = $1', [req.params.id]);
-if (productRows.length === 0) return res.status(404).json({ error: 'Product not found' });
+    try {
+          const { rows: productRows } = await pool.query('SELECT * FROM products WHERE id = $1', [req.params.id]);
+          if (productRows.length === 0) return res.status(404).json({ error: 'Product not found' });
 
-const { rows: offers } = await pool.query(
-`SELECT * FROM offers WHERE product_id = $1 ORDER BY price ASC NULLS LAST`,
-[req.params.id]
-);
-res.json(shapeProduct(productRows[0], offers));
-} catch (error) {
-console.error('Error fetching product:', error);
-res.status(500).json({ error: 'Failed to fetch product' });
-}
+      const { rows: offers } = await pool.query(
+              `SELECT * FROM offers WHERE product_id = $1 ORDER BY price ASC NULLS LAST`,
+              [req.params.id]
+            );
+          res.json(shapeProduct(productRows[0], offers));
+    } catch (error) {
+          console.error('Error fetching product:', error);
+          res.status(500).json({ error: 'Failed to fetch product' });
+    }
 });
 
-// GET /api/products/meta/brands — distinct brand list, for a filter dropdown.
 router.get('/meta/brands', async (req, res) => {
-try {
-const { rows } = await pool.query(
-`SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL ORDER BY brand LIMIT 500`
-);
-res.json({ brands: rows.map((r) => r.brand) });
-} catch (error) {
-console.error('Error fetching brands:', error);
-res.status(500).json({ error: 'Failed to fetch brands' });
-}
+    try {
+          const { rows } = await pool.query(
+                  `SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL ORDER BY brand LIMIT 500`
+                );
+          res.json({ brands: rows.map((r) => r.brand) });
+    } catch (error) {
+          console.error('Error fetching brands:', error);
+          res.status(500).json({ error: 'Failed to fetch brands' });
+    }
 });
 
-// GET /api/products/meta/categories — distinct categories with live
-// product counts, so category pages (and the frontend's own
-// indexability-tier logic) can tell a 5-product category apart from a
-// 500-product one without fetching the whole catalog first.
 router.get('/meta/categories', async (req, res) => {
-try {
-const { rows } = await pool.query(
-`SELECT category, COUNT(*) AS count FROM products WHERE category IS NOT NULL GROUP BY category ORDER BY category`
-);
-res.json({ categories: rows.map((r) => ({ name: r.category, count: Number(r.count) })) });
-} catch (error) {
-console.error('Error fetching categories:', error);
-res.status(500).json({ error: 'Failed to fetch categories' });
-}
+    try {
+          const { rows } = await pool.query(
+                  `SELECT category, COUNT(*) AS count FROM products WHERE category IS NOT NULL GROUP BY category ORDER BY category`
+                );
+          res.json({ categories: rows.map((r) => ({ name: r.category, count: Number(r.count) })) });
+    } catch (error) {
+          console.error('Error fetching categories:', error);
+          res.status(500).json({ error: 'Failed to fetch categories' });
+    }
 });
 
 export default router;
